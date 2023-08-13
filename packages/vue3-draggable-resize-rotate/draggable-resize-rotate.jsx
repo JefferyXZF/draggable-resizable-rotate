@@ -21,22 +21,12 @@ import {
   snapToGrid,
   rotatedPoint,
   getAngle
-} from "./utils/fns";
+} from "./utils/fns"
+import {
+  useDragResizeRotate
+} from './hooks/useDragResize'
 
 import './draggable-resize-rotate.scss'
-
-export const events = {
-  mouse: {
-    start: "mousedown",
-    move: "mousemove",
-    stop: "mouseup",
-  },
-  touch: {
-    start: "touchstart",
-    move: "touchmove",
-    stop: "touchend",
-  },
-};
 
 // 禁止用户选取
 export const userSelectNone = {
@@ -72,6 +62,10 @@ export default defineComponent({
     className: {
       type: String,
       default: "vue-drag-resize-rotate",
+    },
+    targetDom: {
+      type: Object,
+      default: null,
     },
     classNameDraggable: {
       type: String,
@@ -307,7 +301,6 @@ export default defineComponent({
 
   },
   setup(props, { emit, slots }) {
-    let eventsFor = events.mouse;
     const currentDom = shallowRef(null)
 
     const state = reactive({
@@ -349,18 +342,8 @@ export default defineComponent({
       BR: {}, // 右下
     })
 
-    // 鼠标状态
-    const mouseClickPosition = reactive({
-      mouseX: 0,
-      mouseY: 0,
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0,
-    })
-
     // 边界状态
-    const bounds = reactive({
+    const bounds = ref({
       minLeft: null,
       maxLeft: null,
       minRight: null,
@@ -499,28 +482,6 @@ export default defineComponent({
         return stickStyle;
     }
 
-    // 重置边界和鼠标状态
-    const resetBoundsAndMouseState = () => {
-      mouseClickPosition.value = {
-        mouseX: 0,
-        mouseY: 0,
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-      };
-      bounds.value = {
-        minLeft: null,
-        maxLeft: null,
-        minRight: null,
-        maxRight: null,
-        minTop: null,
-        maxTop: null,
-        minBottom: null,
-        maxBottom: null,
-      };
-    }
-
     // 获取父元素大小
     const getParentSize = () => {
       const isParent = props.parent
@@ -570,34 +531,52 @@ export default defineComponent({
       curdom.setAttribute("data-is-snap", `${props.snap}`);
     }
 
-    // 取消选择
-    const deselect = (e) => {
-      const target = e.target || e.srcElement;
-      const regex = new RegExp(props.className + "-([trmbl]{2})", "");
-      if (!currentDom.value.contains(target) && !regex.test(target.className)) {
-        if (props.enabled && !props.preventDeactivation) {
-          props.enabled = false;
-          emit("deactivated");
-          emit("update:active", false);
-        }
-        removeEvent(document.documentElement, eventsFor.move, this.move);
+    // 计算移动范围
+    const calcDragLimits = () => {
+      // 开启旋转时，不在进行边界限制
+      if (props.rotatable) {
+        return {
+          minLeft: -state.width / 2,
+          maxLeft: state.parentWidth - state.width / 2,
+          minRight: state.width / 2,
+          maxRight: state.parentWidth + state.width / 2,
+          minTop: -state.height / 2,
+          maxTop: state.parentHeight - state.height / 2,
+          minBottom: state.height / 2,
+          maxBottom: state.parentHeight + state.height / 2,
+        };
+      } else {
+        const gridArr = props.grid
+        return {
+          minLeft: state.left % gridArr[0],
+          maxLeft: Math.floor((state.parentWidth - state.width - state.left) / gridArr[0]) * gridArr[0] + state.left,
+          minRight: state.right % gridArr[0],
+          maxRight: Math.floor((state.parentWidth - state.width - state.right) / gridArr[0]) * gridArr[0] + state.right,
+          minTop: state.top % gridArr[1],
+          maxTop: Math.floor((state.parentHeight - state.height - state.top) / gridArr[1]) * gridArr[1] + state.top,
+          minBottom: state.bottom % gridArr[1],
+          maxBottom:
+            Math.floor((state.parentHeight - state.height - state.bottom) / gridArr[1]) * gridArr[1] + state.bottom,
+        };
       }
-      resetBoundsAndMouseState();
     }
+
+    const { onMouseDown } = useDragResizeRotate()
 
     // 元素按下
     const elementMouseDown = (e) => {
-      eventsFor = events.touch;
-      verifyElementDown()
+      checkElementDown(e, 'mouse')
     }
 
+    // 元素触摸按下
     const elementTouchDown = (e) => {
-      eventsFor = events.mouse;
-      verifyElementDown()
+      checkElementDown(e, 'touch')
     }
 
-    const verifyElementDown  = (e) => {
+    // 检查鼠标按键
+    const checkElementDown  = (e, eventType) => {
       const target = e.target || e.srcElement
+      // 是否校验包裹的元素
       if (props.wrappingDrag && !currentDom.value.contains(target)) {
         return false
       }
@@ -620,7 +599,27 @@ export default defineComponent({
       if (props.draggable) {
         state.dragging = true;
       }
-      return true
+
+      // 鼠标移动
+      onMouseDown(e, {
+        targetDom: props.targetDom || target,
+        eventType,
+        // 开始拖拽
+        onStart: () => {
+          // 计算拖拽限制范围
+          if (props.parent) {
+            bounds.value = calcDragLimits()
+          }
+        },
+        // 拖拽中回调
+        onMove: (e, position) => {
+          const { left, top } = position
+          state.left = left
+          state.top = top
+        },
+        // 拖拽结束
+        onEnd: () => {}
+      })
     }
 
     const handleMouseDown = (e, direction) => {
@@ -665,20 +664,11 @@ export default defineComponent({
 
       // 绑定data-*属性
       settingAttribute(dom)
-      // 监听取消操作
-      addEvent(document.documentElement, "mousedown", deselect);
-      addEvent(document.documentElement, "touchend touchcancel", deselect);
       //  窗口变化时，检查容器大小
       addEvent(window, "resize", checkParentSize);
     })
 
     onBeforeMount(() => {
-      removeEvent(document.documentElement, "mousedown", deselect);
-      // removeEvent(document.documentElement, "touchstart", this.handleUp);
-      // removeEvent(document.documentElement, "mousemove", this.move);
-      // removeEvent(document.documentElement, "touchmove", this.move);
-      // removeEvent(document.documentElement, "mouseup", this.handleUp);
-      removeEvent(document.documentElement, "touchend touchcancel", deselect);
       removeEvent(window, "resize", checkParentSize);
     })
 

@@ -1,11 +1,181 @@
-import { reactive } from '@vue/reactivity'
+
 import { addEvent, removeEvent } from '../utils/dom'
 import {
     ref,
+    reactive,
+    shallowReactive,
+    readonly,
     toRefs,
-    computed,
+    onMounted,
     onBeforeUnmount
 } from 'vue'
+
+export const events = {
+    mouse: {
+      start: "mousedown",
+      move: "mousemove",
+      stop: "mouseup",
+    },
+    touch: {
+      start: "touchstart",
+      move: "touchmove",
+      stop: "touchend",
+    },
+  };
+
+/**
+ * 计算拖拽移动距离
+ * @param {*} options 拖拽的选项配置
+ * @returns 
+ */
+export function useDragResizeRotate (options = {}) {
+  // 自定义选项
+  const customOptions = {
+    targetDom: null,
+    preventDefault: true,
+    stopPropagation: true,
+    scaleZoom: 1,
+    axis: 'both',
+    mouseEvent: {
+      start: 'mousedown',
+      move: 'mousemove',
+      end: 'mouseup'
+    },
+    onStart: () => {}, // 拖拽开始
+    onMove: () => {}, // 拖拽中
+    onEnd: () => {}, // 拖拽结束
+  }
+  let eventsFor = events.mouse;
+
+  const dragOptions = reactive(Object.assign(customOptions, options))
+
+    // 鼠标状态
+    const mouseClickPosition = ref({
+        mouseX: 0,
+        mouseY: 0,
+        width: 0,
+        height: 0,
+        x: 0, // left 定位坐标
+        y: 0, // top 定位坐标
+        left: 0, // 移动后 left
+        top: 0, // 移动后 top
+        distanceX: 0,
+        distanceY: 0
+    })
+
+    const handleEvent = (e) => {
+      dragOptions.preventDefault && e.preventDefault()
+      dragOptions.stopPropagation && e.stopPropagation()
+    }
+
+    // 开始拖拽
+    const onMouseDown = function (e, config = {}) {
+        // 只能按住鼠标左键触发，e.which 返回一个数字，1是鼠标左键, 2是滚轮按钮或中间按钮（如果有）3是鼠标右键
+        if (e instanceof MouseEvent && e.which !== 1) {
+            return
+        }
+
+        handleEvent(e)
+
+        eventsFor = events[config.eventType || 'mouse']
+        Object.assign(dragOptions, config)
+
+
+        dragOptions.targetDom = readonly(dragOptions.targetDom || e.target || e.srcElement)
+
+        const { left, top, width, height } = dragOptions.targetDom.getBoundingClientRect()
+
+        Object.assign(mouseClickPosition.value, {
+            mouseX: e.touches ? e.touches[0].pageX : e.pageX,
+            mouseY: e.touches ? e.touches[0].pageY : e.pageY,
+            width: width,
+            height: height,
+            x: left,
+            y: top,
+            distanceX: 0,
+            distanceY: 0
+        })
+        console.log(left, top)
+        if (dragOptions.onStart?.(e, mouseClickPosition.value) === false) {
+            return
+        }
+        
+
+        addEvent(document.documentElement, eventsFor.move, dragMove)
+        addEvent(document.documentElement, eventsFor.end, dragEnd)
+    }
+
+    // 拖拽移动
+    const dragMove = function (e) {
+        handleEvent(e)
+        const { mouseX, mouseY, x, y } = mouseClickPosition.value
+        const { axis } = dragOptions
+
+        let distanceX = 0 // 移动距离X
+        let distanceY = 0 // 移动距离Y
+
+        if (axis === 'x' || axis === 'both') {
+            const pageX = e.touches ? e.touches[0].pageX : e.pageX
+            distanceX = pageX - mouseX
+        }
+        if (axis === 'y' || axis === 'both') {
+            const pageY = e.touches ? e.touches[0].pageY : e.pageY
+            distanceY = Number.parseInt(pageY - mouseY)
+        }
+        Object.assign(mouseClickPosition.value, {
+            left: x + distanceX,
+            top: y + distanceY,
+            distanceX,
+            distanceY
+        })
+
+        dragOptions.onMove?.(e, mouseClickPosition.value)
+    }
+
+    // 拖拽结束
+    const dragEnd = function (e) {
+        handleEvent(e)
+        dragOptions.onEnd?.(e, mouseClickPosition.value)
+
+        removeEvent(document.documentElement, eventsFor.move, dragMove)
+        removeEvent(document.documentElement, eventsFor.end, dragEnd)
+    }
+
+    // 取消选择
+    const deselect = (e) => {
+        const target = e.target || e.srcElement;
+        // const regex = new RegExp(props.className + "-([trmbl]{2})", "");
+        if (!dragOptions.targetDom?.contains(target)) {
+        //   if (props.enabled && !props.preventDeactivation) {
+        //     emit("deactivated");
+        //     emit("update:active", false);
+        //   }
+          removeEvent(document.documentElement, eventsFor.move, dragMove);
+        }
+      }
+
+    onMounted(() => {
+        // 监听取消操作
+      addEvent(document.documentElement, "mousedown", deselect);
+    //   addEvent(document.documentElement, "touchend touchcancel", deselect);
+    })
+
+
+    onBeforeUnmount(() => {
+        // mouseClickPosition.value = null
+        // removeEvent(document.documentElement, "mousedown", deselect);
+        // removeEvent(document.documentElement, "touchstart", this.handleUp);
+        // removeEvent(document.documentElement, "mousemove", this.move);
+        // removeEvent(document.documentElement, "touchmove", this.move);
+        // removeEvent(document.documentElement, "mouseup", this.handleUp);
+        // removeEvent(document.documentElement, "touchend touchcancel", deselect);
+    })
+
+    return {
+        ...toRefs(mouseClickPosition),
+        onMouseDown
+    }
+}
 
 // 限制移动距离
 export const restrictToBounds = function (value, min, max, distance, currZoom) {
@@ -220,127 +390,5 @@ export const resizeMove = (val, initPosition, currZoom, handle) => {
         height,
         top,
         left
-    }
-}
-
-
-export function useDragResize (options = {}) {
-  // 自定义选项
-  const customOptions = {
-    targetDom: null,
-    preventDefault: true,
-    stopPropagation: true,
-    scaleZoom = 1,
-    axis = 'both',
-    mouseEvent: {
-      start: 'mousedown',
-      move: 'mousemove',
-      end: 'mouseup'
-    },
-    onStart: () => {}, // 拖拽开始
-    onMove: () => {}, // 拖拽中
-    onEnd: () => {}, // 拖拽结束
-  }
-
-  const dragOptions = reactive(Object.assign(customOptions, options))
-
-    // 鼠标状态
-    const mouseClickPosition = ref({
-        mouseX: 0,
-        mouseY: 0,
-        width: 0,
-        height: 0,
-        left: 0,
-        top: 0,
-        parentWidth: 0,
-        parentHeight: 0
-    })
-
-    const pressedDelta = ref({})
-
-    const handleEvent = (e) => {
-      dragOptions.preventDefault && e.preventDefault()
-      dragOptions.stopPropagation && e.stopPropagation()
-    }
-
-    // 开始拖拽
-    const elementDown = function (e, config = {}) {
-        // 只能按住鼠标左键触发，e.which 返回一个数字，1是鼠标左键, 2是滚轮按钮或中间按钮（如果有）3是鼠标右键
-        if (e instanceof MouseEvent && e.which !== 1) {
-            return
-        }
-
-        Object.assign(dragOptions, config)
-
-        const triggerTarget = dragOptions.targetDom || e.target || e.srcElement
-
-        const { left, top, width, height } = triggerTarget.getBoundingClientRect()
-
-        Object.assign(mouseClickPosition.value, {
-            mouseX: e.pageX,
-            mouseY: e.pageY,
-            width: width,
-            height: height,
-            left: left,
-            top: top,
-            distanceX: 0,
-            distanceY: 0
-        })
-        if (onStart?.(mouseClickPosition.value, e) === false) {
-            return
-        }
-        Object.assign(pressedDelta.value, mouseClickPosition.value)
-
-        addEvent(document.documentElement, dragOptions.mouseEvent.move, dragMove)
-        addEvent(document.documentElement, dragOptions.mouseEvent.end, dragEnd)
-        handleEvent(e)
-    }
-
-    // 拖拽移动
-    const dragMove = function (e) {
-        const { mouseX, mouseY } = mouseClickPosition.value
-
-        let distanceX = 0 // 移动距离X
-        let distanceY = 0 // 移动距离Y
-
-        if (axis === 'x' || axis === 'both') {
-            distanceX = Number.parseInt(e.pageX - mouseX)
-        }
-        if (axis === 'y' || axis === 'both') {
-            distanceY = Number.parseInt(e.pageY - mouseY)
-        }
-        Object.assign(pressedDelta.value, {
-            distanceX,
-            distanceY
-        })
-
-        onMove?.(pressedDelta.value, e)
-        handleEvent(e)
-    }
-
-    // 拖拽结束
-    const dragEnd = function (e) {
-        onEnd?.(pressedDelta.value, e)
-
-        pressedDelta.value = {}
-        removeEvent(document.documentElement, dragOptions.mouseEvent.move, dragMove)
-        removeEvent(document.documentElement, dragOptions.mouseEvent.end, dragEnd)
-        handleEvent(e)
-    }
-
-    // 注册拖拽事件
-    // addEvent(triggerTarget, dragOptions.mouseEvent.start, elementDown)
-
-    onBeforeUnmount(() => {
-        // removeEvent(triggerTarget, dragOptions.mouseEvent.start, elementDown)
-        // triggerTarget = null
-        mouseClickPosition.value = null
-    })
-
-    return {
-        ...toRefs(mouseClickPosition),
-        mouseClickPosition,
-        isDragging: computed(() => Boolean(pressedDelta.value)),
-        elementDown
     }
 }
