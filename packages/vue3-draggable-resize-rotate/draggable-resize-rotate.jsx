@@ -1,0 +1,717 @@
+import { 
+  defineComponent,
+  ref,
+  shallowRef,
+  reactive,
+  computed,
+  onMounted,
+  onBeforeMount,
+  getCurrentInstance,
+} from 'vue'
+import {
+  matchesSelectorToParentElements,
+  getComputedSize,
+  addEvent,
+  removeEvent
+} from './utils/dom'
+import {
+  computeWidth,
+  computeHeight,
+  restrictToBounds,
+  snapToGrid,
+  rotatedPoint,
+  getAngle
+} from "./utils/fns";
+
+import './draggable-resize-rotate.scss'
+
+export const events = {
+  mouse: {
+    start: "mousedown",
+    move: "mousemove",
+    stop: "mouseup",
+  },
+  touch: {
+    start: "touchstart",
+    move: "touchmove",
+    stop: "touchend",
+  },
+};
+
+// 禁止用户选取
+export const userSelectNone = {
+  userSelect: "none",
+  MozUserSelect: "none",
+  WebkitUserSelect: "none",
+  MsUserSelect: "none",
+};
+// 用户选中自动
+export const userSelectAuto = {
+  userSelect: "auto",
+  MozUserSelect: "auto",
+  WebkitUserSelect: "auto",
+  MsUserSelect: "auto",
+};
+
+
+export default defineComponent({
+  name: 'VueDragResizeRotate',
+  emits: [
+    "update:active",
+    "rotating",
+    "dragging",
+    "resizing",
+    "refLineParams",
+    "resizestop",
+    "dragstop",
+    "rotatestop",
+    "activated",
+    "deactivated",
+  ],
+  props: {
+    className: {
+      type: String,
+      default: "vue-drag-resize-rotate",
+    },
+    classNameDraggable: {
+      type: String,
+      default: "draggable",
+    },
+    classNameResizable: {
+      type: String,
+      default: "resizable",
+    },
+    // 新增开启旋转时的自定义类名
+    classNameRotatable: {
+      type: String,
+      default: "rotatable",
+    },
+    classNameDragging: {
+      type: String,
+      default: "dragging",
+    },
+    classNameResizing: {
+      type: String,
+      default: "resizing",
+    },
+    // 新增组件处于旋转时的自定义类名
+    classNameRotating: {
+      type: String,
+      default: "rotating",
+    },
+    classNameActive: {
+      type: String,
+      default: "active",
+    },
+    classNameHandle: {
+      type: String,
+      default: "handle",
+    },
+    disableUserSelect: {
+      type: Boolean,
+      default: true,
+    },
+    enableNativeDrag: {
+      type: Boolean,
+      default: false,
+    },
+    preventDeactivation: {
+      type: Boolean,
+      default: false,
+    },
+    active: {
+      type: Boolean,
+      default: false,
+    },
+    draggable: {
+      type: Boolean,
+      default: true,
+    },
+    resizable: {
+      type: Boolean,
+      default: true,
+    },
+    // 新增 旋转 默认为false 不开启
+    rotatable: {
+      type: Boolean,
+      default: false,
+    },
+    // 锁定宽高比
+    lockAspectRatio: {
+      type: Boolean,
+      default: false,
+    },
+    // 新增 外部传入纵横比 w/h
+    outsideAspectRatio: {
+      type: [Number, String],
+      default: 0,
+    },
+    w: {
+      type: [Number, String],
+      default: 200,
+      validator: (val) => {
+        if (typeof val === "number") {
+          return val > 0;
+        }
+        return val === "auto";
+      },
+    },
+    h: {
+      type: [Number, String],
+      default: 200,
+      validator: (val) => {
+        if (typeof val === "number") {
+          return val > 0;
+        }
+        return val === "auto";
+      },
+    },
+    minWidth: {
+      type: Number,
+      default: 0,
+      validator: (val) => val >= 0,
+    },
+    minHeight: {
+      type: Number,
+      default: 0,
+      validator: (val) => val >= 0,
+    },
+    maxWidth: {
+      type: Number,
+      default: Infinity,
+      validator: (val) => val >= 0,
+    },
+    maxHeight: {
+      type: Number,
+      default: Infinity,
+      validator: (val) => val >= 0,
+    },
+    x: {
+      type: [String, Number],
+      default: 0,
+    },
+    y: {
+      type: [String, Number],
+      default: 0,
+    },
+    z: {
+      type: [String, Number],
+      default: "auto",
+      validator: (val) => (typeof val === "string" ? val === "auto" : val >= 0),
+    },
+    // 新增 初始旋转角度
+    r: {
+      type: [String, Number],
+      default: 0,
+    },
+    // 新增 旋转手柄 rot
+    handles: {
+      type: Array,
+      default: () => ["tl", "tm", "tr", "mr", "br", "bm", "bl", "ml", "rot"],
+      validator: (val) => {
+        const s = new Set(["tl", "tm", "tr", "mr", "br", "bm", "bl", "ml", "rot"]);
+        return new Set(val.filter((h) => s.has(h))).size === val.length;
+      },
+    },
+    dragHandle: {
+      type: String,
+      default: null,
+    },
+    dragCancel: {
+      type: String,
+      default: null,
+    },
+    // 包裹元素
+    wrappingDrag: {
+      type: Boolean,
+      default: true,
+    },
+    axis: {
+      type: String,
+      default: "both",
+      validator: (val) => ["x", "y", "both"].includes(val),
+    },
+    grid: {
+      type: Array,
+      default: () => [1, 1],
+    },
+    parent: {
+      type: [Boolean, String],
+      default: false,
+    },
+    onDragStart: {
+      type: Function,
+      default: () => true,
+    },
+    onDrag: {
+      type: Function,
+      default: () => true,
+    },
+    onResizeStart: {
+      type: Function,
+      default: () => true,
+    },
+    onResize: {
+      type: Function,
+      default: () => true,
+    },
+    // 新增 回调事件
+    onRotateStart: {
+      type: Function,
+      default: () => true,
+    },
+    onRotate: {
+      type: Function,
+      default: () => true,
+    },
+    // 冲突检测
+    isConflictCheck: {
+      type: Boolean,
+      default: false,
+    },
+    // 元素对齐
+    snap: {
+      type: Boolean,
+      default: false,
+    },
+    // 新增 是否对齐容器边界
+    snapBorder: {
+      type: Boolean,
+      default: false,
+    },
+    // 当调用对齐时，用来设置组件与组件之间的对齐距离，以像素为单位
+    snapTolerance: {
+      type: Number,
+      default: 5,
+      validator: function (val) {
+        return typeof val === "number";
+      },
+    },
+    // 缩放比例
+    scaleRatio: {
+      type: Number,
+      default: 1,
+      validator: (val) => typeof val === "number",
+    },
+    // handle是否缩放
+    handleInfo: {
+      type: Object,
+      default: () => {
+        return {
+          size: 8,
+          offset: -4,
+          switch: true,
+        };
+      },
+    },
+
+  },
+  setup(props, { emit, slots }) {
+    let eventsFor = events.mouse;
+    const currentDom = shallowRef(null)
+
+    const state = reactive({
+      left: props.x,
+      top: props.y,
+      right: null,
+      bottom: null,
+      // 旋转角度
+      rotate: props.r,
+      width: null,
+      height: null,
+      // 纵横比变量
+      aspectFactor: null,
+      // 容器的大小
+      parentWidth: null,
+      parentHeight: null,
+      // 设置最小和最大尺寸
+      minW: props.minWidth,
+      minH: props.minHeight,
+      maxW: props.maxWidth,
+      maxH: props.maxHeight,
+      // 定义控制手柄
+      handle: null,
+      enabled: props.active,
+      resizing: false,
+      dragging: false,
+      // 新增 表明组件是否正处于旋转状态
+      rotating: false,
+      zIndex: props.z,
+      // 新增 保存中心点位置，用于计算旋转的方向矢量
+      lastCenterX: 0,
+      lastCenterY: 0,
+      // 父元素左上角的坐标值
+      parentX: 0,
+      parentY: 0,
+      TL: {}, // 左上顶点
+      TR: {}, // 右上
+      BL: {}, // 左下
+      BR: {}, // 右下
+    })
+
+    // 鼠标状态
+    const mouseClickPosition = reactive({
+      mouseX: 0,
+      mouseY: 0,
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+    })
+
+    // 边界状态
+    const bounds = reactive({
+      minLeft: null,
+      maxLeft: null,
+      minRight: null,
+      maxRight: null,
+      minTop: null,
+      maxTop: null,
+      minBottom: null,
+      maxBottom: null,
+    })
+
+    // 根据自适应，left right 计算元素的宽度
+    const computedWidth = computed(() => {
+      return props.w === 'auto' ? 'auto' : state.width + 'px'
+    })
+
+    // 根据自适应，left bottom 计算元素的高度
+    const computedHeight = computed(() => {
+      return props.h === 'auto' ? 'auto' : state.height + 'px'
+    })
+
+    const dragStyle = computed(() => {
+      return {
+        transform: `translate(${state.left}px, ${state.top}px) rotate(${state.rotate}deg)`,
+        width: computedWidth.value,
+        height: computedHeight.value,
+        zIndex: state.zIndex,
+        ...(state.dragging && props.disableUserSelect ? userSelectNone : userSelectAuto),
+      }
+    })
+
+    const dragClass = computed(() => {
+      return [
+        {
+          [props.classNameDragging]: state.dragging,
+          [props.classNameActive]: state.enabled,
+          [props.classNameResizing]: state.resizing,
+          [props.classNameRotating]: state.rotating,
+          [props.classNameRotatable]: props.rotatable,
+          [props.classNameDraggable]: props.draggable,
+          [props.classNameResizable]: props.resizable,
+        },
+        props.className,
+      ]
+    })
+
+    // 控制柄显示与否
+    const actualHandles = computed(() => {
+      if (!props.resizable && !props.rotatable) return [];
+      return props.handles;
+    })
+
+    const handleStyle = (stick, index) => {
+      if (!props.handleInfo.switch) return { display: state.enabled ? "block" : "none" };
+        // 当没有开启旋转的时候，旋转手柄不显示
+        if (stick === "rot" && !props.rotatable) return { display: "none" };
+        if (stick !== "rot" && !props.resizable) return { display: "none" };
+        const size = (props.handleInfo.size / props.scaleRatio).toFixed(2);
+        const offset = (props.handleInfo.offset / props.scaleRatio).toFixed(2);
+        const center = (size / 2).toFixed(2);
+        const styleMap = {
+          tl: {
+            top: `${offset}px`,
+            left: `${offset}px`,
+          },
+          tm: {
+            top: `${offset}px`,
+            left: `calc(50% - ${center}px)`,
+          },
+          tr: {
+            top: `${offset}px`,
+            right: `${offset}px`,
+          },
+          mr: {
+            top: `calc(50% - ${center}px)`,
+            right: `${offset}px`,
+          },
+          br: {
+            bottom: `${offset}px`,
+            right: `${offset}px`,
+          },
+          bm: {
+            bottom: `${offset}px`,
+            right: `calc(50% - ${center}px)`,
+          },
+          bl: {
+            bottom: `${offset}px`,
+            left: `${offset}px`,
+          },
+          ml: {
+            top: `calc(50% - ${center}px)`,
+            left: `${offset}px`,
+          },
+          rot: {
+            top: `-${size * 3}px`,
+            left: `50%`,
+          },
+        };
+        const stickStyle = {
+          width: styleMap[stick].width || `${size}px`,
+          height: styleMap[stick].height || `${size}px`,
+          top: styleMap[stick].top,
+          left: styleMap[stick].left,
+          right: styleMap[stick].right,
+          bottom: styleMap[stick].bottom,
+        };
+        const mapStick2Index = {
+          tl: 0,
+          tm: 1,
+          tr: 2,
+          mr: 3,
+          br: 4,
+          bm: 5,
+          bl: 6,
+          ml: 7,
+          rot: 8,
+        };
+        // 新增 让控制手柄的鼠标样式跟随旋转角度变化
+        if (stick !== "rot") {
+          const cursorStyleArray = [
+            "nw-resize",
+            "n-resize",
+            "ne-resize",
+            "e-resize",
+            "se-resize",
+            "s-resize",
+            "sw-resize",
+            "w-resize",
+          ];
+          const STEP = 45;
+          const rotate = state.rotate + STEP / 2;
+          const deltaIndex = Math.floor(rotate / STEP);
+          let index = (mapStick2Index[stick] + deltaIndex) % 8;
+          stickStyle.cursor = cursorStyleArray[index];
+        }
+        stickStyle.display = state.enabled ? "block" : "none";
+        return stickStyle;
+    }
+
+    // 重置边界和鼠标状态
+    const resetBoundsAndMouseState = () => {
+      mouseClickPosition.value = {
+        mouseX: 0,
+        mouseY: 0,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+      };
+      bounds.value = {
+        minLeft: null,
+        maxLeft: null,
+        minRight: null,
+        maxRight: null,
+        minTop: null,
+        maxTop: null,
+        minBottom: null,
+        maxBottom: null,
+      };
+    }
+
+    // 获取父元素大小
+    const getParentSize = () => {
+      const isParent = props.parent
+      if (isParent === true) {
+        const { x, y ,width, height } = currentDom.value.parentNode.getBoundingClientRect()
+        state.parentX = x
+        state.parentY = y;
+        return [
+          Math.round(width),
+          Math.round(height),
+        ];
+      }
+      if (typeof isParent === "string") {
+        const parentNode = document.querySelector(isParent);
+        if (!(parentNode instanceof HTMLElement)) {
+          throw new Error(`The selector ${isParent} does not match any element`);
+        }
+        return [parentNode.offsetWidth, parentNode.offsetHeight];
+      }
+      return [null, null];
+    }
+
+    // 检查父元素大小
+    const checkParentSize = () => {
+      if (props.parent) {
+        const [newParentWidth, newParentHeight] = getParentSize();
+        // 修复父元素改变大小后，组件resizing时活动异常
+        state.right = newParentWidth - state.width - state.left;
+        state.bottom = newParentHeight - state.height - state.top;
+        state.parentWidth = newParentWidth;
+        state.parentHeight = newParentHeight;
+      }
+    }
+
+    // 更新获取父元素宽高
+    const updateParentSize = () => {
+      const [parentWidth, parentHeight] = getParentSize();
+      state.parentWidth = parentWidth;
+      state.parentHeight = parentHeight;
+    }
+
+    // 设置属性
+    const settingAttribute = (curdom) => {
+      // 设置冲突检测
+      curdom.setAttribute("data-is-check", `${props.isConflictCheck}`);
+      // 设置对齐元素
+      curdom.setAttribute("data-is-snap", `${props.snap}`);
+    }
+
+    // 取消选择
+    const deselect = (e) => {
+      const target = e.target || e.srcElement;
+      const regex = new RegExp(props.className + "-([trmbl]{2})", "");
+      if (!currentDom.value.contains(target) && !regex.test(target.className)) {
+        if (props.enabled && !props.preventDeactivation) {
+          props.enabled = false;
+          emit("deactivated");
+          emit("update:active", false);
+        }
+        removeEvent(document.documentElement, eventsFor.move, this.move);
+      }
+      resetBoundsAndMouseState();
+    }
+
+    // 元素按下
+    const elementMouseDown = (e) => {
+      eventsFor = events.touch;
+      verifyElementDown()
+    }
+
+    const elementTouchDown = (e) => {
+      eventsFor = events.mouse;
+      verifyElementDown()
+    }
+
+    const verifyElementDown  = (e) => {
+      const target = e.target || e.srcElement
+      if (props.wrappingDrag && !currentDom.value.contains(target)) {
+        return false
+      }
+      if (props.onDragStart(e) === false) {
+        return false
+      }
+      if (
+        (props.dragHandle && !matchesSelectorToParentElements(target, props.dragHandle, currentDom.value)) ||
+        (props.dragCancel && matchesSelectorToParentElements(target, props.dragCancel, currentDom.value))
+      ) {
+        state.dragging = false;
+        return false
+      }
+
+      if (!props.enabled) {
+        state.enabled = true;
+        emit("activated");
+        emit("update:active", true);
+      }
+      if (props.draggable) {
+        state.dragging = true;
+      }
+      return true
+    }
+
+    const handleMouseDown = (e, direction) => {
+      
+    }
+
+    const handleTouchDown = (e, direction) => {
+
+    }
+
+    const initInstance = () => {
+      if (props.maxWidth && props.minWidth > props.maxWidth) {
+        console.warn("[Vdr warn]: Invalid prop: minWidth cannot be greater than maxWidth");
+      }
+      if (props.maxWidth && props.minHeight > props.maxHeight) {
+        console.warn("[Vdr warn]: Invalid prop: minHeight cannot be greater than maxHeight");
+      }
+    }
+
+    initInstance()
+
+    onMounted(() => {
+      const dom = getCurrentInstance().refs.dragRef
+      if (!props.enableNativeDrag) {
+        dom.ondragstart = () => false;
+      }
+      currentDom.value = dom
+      const [parentWidth, parentHeight] = getParentSize();
+      state.parentWidth = parentWidth;
+      state.parentHeight = parentHeight;
+      const [width, height] = getComputedSize(dom);
+      const customWidth = props.w
+      const customHeight = props.h
+      state.aspectFactor = (customWidth !== "auto" ? customWidth : width) / (customHeight !== "auto" ? customHeight : height);
+      if (props.outsideAspectRatio) {
+        state.aspectFactor = props.outsideAspectRatio;
+      }
+      state.width = customWidth !== "auto" ? customWidth : width;
+      state.height = customHeight !== "auto" ? customHeight : height;
+      state.right = state.parentWidth - state.width - state.left;
+      state.bottom = state.parentHeight - state.height - state.top;
+
+      // 绑定data-*属性
+      settingAttribute(dom)
+      // 监听取消操作
+      addEvent(document.documentElement, "mousedown", deselect);
+      addEvent(document.documentElement, "touchend touchcancel", deselect);
+      //  窗口变化时，检查容器大小
+      addEvent(window, "resize", checkParentSize);
+    })
+
+    onBeforeMount(() => {
+      removeEvent(document.documentElement, "mousedown", deselect);
+      // removeEvent(document.documentElement, "touchstart", this.handleUp);
+      // removeEvent(document.documentElement, "mousemove", this.move);
+      // removeEvent(document.documentElement, "touchmove", this.move);
+      // removeEvent(document.documentElement, "mouseup", this.handleUp);
+      removeEvent(document.documentElement, "touchend touchcancel", deselect);
+      removeEvent(window, "resize", checkParentSize);
+    })
+
+    return {
+      slots,
+      dragStyle,
+      dragClass,
+      actualHandles,
+      handleStyle,
+      elementMouseDown,
+      elementTouchDown,
+      handleMouseDown,
+      handleTouchDown
+    }
+  },
+  render (app) {
+    return (<div
+      ref="dragRef"
+      style={this.dragStyle}
+      class={this.dragClass}
+      onMousedown={this.elementMouseDown}
+      onTouchstart={this.elementTouchDown}
+    >
+      {this.actualHandles.map((handle, index) => (<div
+        key={index}
+        class={[this.classNameHandle, this.classNameHandle + '-' + handle]}
+        style={this.handleStyle(handle, index)}
+        onMousedown={(e) => this.handleMouseDown(e, handle)}
+        onTouchstart={(e) => this.handleTouchDown(e, handle)}
+      >
+        {this.slots[handle] ? this.slots[handle]() : ''}
+      </div>))}
+      {this.slots.default ? this.slots.default() : ''}
+    </div>)
+  }
+})

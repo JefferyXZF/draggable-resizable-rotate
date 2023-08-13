@@ -1,0 +1,83 @@
+.vue-drag-resize-rotate {
+  touch-action: none;
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed;
+}
+
+.handle {
+  box-sizing: border-box;
+  position: absolute;
+  background: #ffffff;
+  border: 1px solid #333;
+}
+
+.handle-tl {
+  cursor: nw-resize;
+}
+
+.handle-tm {
+  cursor: n-resize;
+}
+
+.handle-tr {
+  cursor: ne-resize;
+}
+
+.handle-ml {
+  cursor: w-resize;
+}
+
+.handle-mr {
+  cursor: e-resize;
+}
+
+.handle-bl {
+  cursor: sw-resize;
+}
+
+.handle-bm {
+  cursor: s-resize;
+}
+
+.handle-br {
+  cursor: se-resize;
+}
+
+.handle-rot {
+  transform: translateX(-50%);
+  cursor: grab;
+  display: inline-block;
+  box-sizing: border-box;
+  border: none;
+  text-indent: -9999px;
+  vertical-align: middle;
+}
+
+.handle-rot:before,
+.handle-rot:after {
+  content: "";
+  box-sizing: inherit;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.handle-rot:before {
+  width: 1em;
+  height: 1em;
+  border: 2px solid #333;
+  border-right-color: transparent;
+  border-radius: 50%;
+}
+
+.handle-rot:after {
+  width: 0px;
+  height: 0px;
+  border: 0.25em solid #333;
+  border-left-color: transparent;
+  border-top-color: transparent;
+  left: 100%;
+  top: 10%;
+}
