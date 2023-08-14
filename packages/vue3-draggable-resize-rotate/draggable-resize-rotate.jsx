@@ -292,8 +292,8 @@ export default defineComponent({
       type: Object,
       default: () => {
         return {
-          size: 8,
-          offset: -4,
+          size: 12,
+          offset: -6,
           switch: true,
         };
       },
@@ -366,7 +366,9 @@ export default defineComponent({
 
     const dragStyle = computed(() => {
       return {
-        transform: `translate(${state.left}px, ${state.top}px) rotate(${state.rotate}deg)`,
+        // transform: `translate(${state.left}px, ${state.top}px) rotate(${state.rotate}deg)`,
+        left: `${state.left}px`,
+        top: `${state.top}px`,
         width: computedWidth.value,
         height: computedHeight.value,
         zIndex: state.zIndex,
@@ -591,7 +593,7 @@ export default defineComponent({
         return false
       }
 
-      if (!props.enabled) {
+      if (!state.enabled) {
         state.enabled = true;
         emit("activated");
         emit("update:active", true);
@@ -602,7 +604,7 @@ export default defineComponent({
 
       // 鼠标移动
       onMouseDown(e, {
-        targetDom: props.targetDom || target,
+        targetDom: props.targetDom || currentDom.value,
         eventType,
         // 开始拖拽
         onStart: () => {
@@ -618,7 +620,15 @@ export default defineComponent({
           state.top = top
         },
         // 拖拽结束
-        onEnd: () => {}
+        onEnd: () => {},
+        // 取消选择
+        onDeselect: () => {
+            if (state.enabled && !props.preventDeactivation) {
+                state.enabled = false
+                emit("deactivated")
+                emit("update:active", false);
+              }
+        }
       })
     }
 

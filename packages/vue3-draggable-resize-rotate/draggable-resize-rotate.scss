@@ -2,14 +2,16 @@
   touch-action: none;
   position: absolute;
   box-sizing: border-box;
-  border: 1px dashed;
+  border: 1px solid #2f54eb;;
+  cursor: move;
 }
 
 .handle {
   box-sizing: border-box;
   position: absolute;
   background: #ffffff;
-  border: 1px solid #333;
+  border: 1px solid #2f54eb;
+  border-radius: 50%;
 }
 
 .handle-tl {
