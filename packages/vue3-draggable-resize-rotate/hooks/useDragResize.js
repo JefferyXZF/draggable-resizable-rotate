@@ -36,13 +36,14 @@ export function useDragResizeRotate (options = {}) {
     stopPropagation: true,
     scaleZoom: 1,
     axis: 'both',
-    onStart: () => {}, // 拖拽开始
-    onMove: () => {}, // 拖拽中
-    onEnd: () => {}, // 拖拽结束
+    parent: false, // 父元素限制
+    onStart: () => true, // 拖拽开始
+    onMove: () => true, // 拖拽中
+    onEnd: () => true, // 拖拽结束
   }
   let eventsFor = events.mouse;
 
-  const dragOptions = reactive(Object.assign(customOptions, options))
+  const dragOptions = ref({ ...customOptions, ...options })
 
     // 鼠标状态
     const mouseClickPosition = ref({
@@ -58,10 +59,52 @@ export function useDragResizeRotate (options = {}) {
         distanceY: 0
     })
 
+    // 边界状态
+    const bounds = ref({
+        minLeft: null,
+        maxLeft: null,
+        minRight: null,
+        maxRight: null,
+        minTop: null,
+        maxTop: null,
+        minBottom: null,
+        maxBottom: null,
+      })
+
     const handleEvent = (e) => {
-      dragOptions.preventDefault && e.preventDefault()
-      dragOptions.stopPropagation && e.stopPropagation()
+      dragOptions.value.preventDefault && e.preventDefault()
+      dragOptions.value.stopPropagation && e.stopPropagation()
     }
+
+    // 计算移动范围
+    const calcDragLimits = () => {
+        const { state, rotatable, grid: gridArr } = dragOptions.value
+        // 开启旋转时，不在进行边界限制
+        if (rotatable) {
+          return {
+            minLeft: -state.width / 2,
+            maxLeft: state.parentWidth - state.width / 2,
+            minRight: state.width / 2,
+            maxRight: state.parentWidth + state.width / 2,
+            minTop: -state.height / 2,
+            maxTop: state.parentHeight - state.height / 2,
+            minBottom: state.height / 2,
+            maxBottom: state.parentHeight + state.height / 2,
+          };
+        } else {
+          return {
+            minLeft: state.left % gridArr[0],
+            maxLeft: Math.floor((state.parentWidth - state.width - state.left) / gridArr[0]) * gridArr[0] + state.left,
+            minRight: state.right % gridArr[0],
+            maxRight: Math.floor((state.parentWidth - state.width - state.right) / gridArr[0]) * gridArr[0] + state.right,
+            minTop: state.top % gridArr[1],
+            maxTop: Math.floor((state.parentHeight - state.height - state.top) / gridArr[1]) * gridArr[1] + state.top,
+            minBottom: state.bottom % gridArr[1],
+            maxBottom:
+              Math.floor((state.parentHeight - state.height - state.bottom) / gridArr[1]) * gridArr[1] + state.bottom,
+          };
+        }
+      }
 
     // 开始拖拽
     const onMouseDown = function (e, config = {}) {
@@ -73,14 +116,15 @@ export function useDragResizeRotate (options = {}) {
         handleEvent(e)
 
         eventsFor = events[config.eventType || 'mouse']
-        Object.assign(dragOptions, config)
+        dragOptions.value = { ...dragOptions.value, ...config }
+
+        if (!config.targetDom) {
+            dragOptions.value.targetDom = readonly(e.target || e.srcElement)
+        }
 
 
-        dragOptions.targetDom = readonly(dragOptions.targetDom || e.target || e.srcElement)
-
-        const { width, height } = dragOptions.targetDom.getBoundingClientRect()
-        const { offsetLeft, offsetTop } = dragOptions.targetDom
-        console.log('offsetLeft, offsetTop', offsetLeft, offsetTop)
+        const { width, height } = dragOptions.value.targetDom.getBoundingClientRect()
+        const { offsetLeft, offsetTop } = dragOptions.value.targetDom
 
         Object.assign(mouseClickPosition.value, {
             mouseX: e.touches ? e.touches[0].pageX : e.pageX,
@@ -92,7 +136,7 @@ export function useDragResizeRotate (options = {}) {
             distanceX: 0,
             distanceY: 0
         })
-        if (dragOptions.onStart?.(e, mouseClickPosition.value) === false) {
+        if (dragOptions.value.onStart?.(e, mouseClickPosition.value) === false) {
             return
         }
         
@@ -104,7 +148,7 @@ export function useDragResizeRotate (options = {}) {
     const dragMove = function (e) {
         handleEvent(e)
         const { mouseX, mouseY, x, y } = mouseClickPosition.value
-        const { axis } = dragOptions
+        const { axis } = dragOptions.value
 
         let distanceX = 0 // 移动距离X
         let distanceY = 0 // 移动距离Y
@@ -124,13 +168,13 @@ export function useDragResizeRotate (options = {}) {
             distanceY
         })
 
-        dragOptions.onMove?.(e, mouseClickPosition.value)
+        dragOptions.value.onMove?.(e, mouseClickPosition.value)
     }
 
     // 拖拽结束
     const dragEnd = function (e) {
         handleEvent(e)
-        dragOptions.onEnd?.(e, mouseClickPosition.value)
+        dragOptions.value.onEnd?.(e, mouseClickPosition.value)
 
         removeEvent(document.documentElement, eventsFor.move, dragMove)
         removeEvent(document.documentElement, eventsFor.stop, dragEnd)
@@ -140,8 +184,8 @@ export function useDragResizeRotate (options = {}) {
     const deselect = (e) => {
         const target = e.target || e.srcElement;
         // const regex = new RegExp(props.className + "-([trmbl]{2})", "");
-        if (!dragOptions.targetDom?.contains(target)) {
-            dragOptions.onDeselect?.(e, mouseClickPosition.value)
+        if (!dragOptions.value.targetDom?.contains(target)) {
+            dragOptions.value.onDeselect?.(e, mouseClickPosition.value)
             removeEvent(document.documentElement, eventsFor.move, dragMove);
         }
       }

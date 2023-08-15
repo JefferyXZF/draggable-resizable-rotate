@@ -2,6 +2,7 @@ import {
   defineComponent,
   ref,
   shallowRef,
+  readonly,
   reactive,
   computed,
   onMounted,
@@ -604,8 +605,9 @@ export default defineComponent({
 
       // 鼠标移动
       onMouseDown(e, {
-        targetDom: props.targetDom || currentDom.value,
+        targetDom: readonly(props.targetDom || currentDom.value),
         eventType,
+        parent: props.parent,
         // 开始拖拽
         onStart: () => {
           // 计算拖拽限制范围
