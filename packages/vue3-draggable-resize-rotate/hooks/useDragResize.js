@@ -36,18 +36,13 @@ export function useDragResizeRotate (options = {}) {
     stopPropagation: true,
     scaleZoom: 1,
     axis: 'both',
-    mouseEvent: {
-      start: 'mousedown',
-      move: 'mousemove',
-      end: 'mouseup'
-    },
-    onStart: () => {}, // 拖拽开始
-    onMove: () => {}, // 拖拽中
-    onEnd: () => {}, // 拖拽结束
+    onStart: () => true, // 拖拽开始
+    onMove: () => true, // 拖拽中
+    onEnd: () => true, // 拖拽结束
   }
   let eventsFor = events.mouse;
 
-  const dragOptions = reactive(Object.assign(customOptions, options))
+  const dragOptions = ref({ ...customOptions, ...options })
 
     // 鼠标状态
     const mouseClickPosition = ref({
@@ -64,8 +59,8 @@ export function useDragResizeRotate (options = {}) {
     })
 
     const handleEvent = (e) => {
-      dragOptions.preventDefault && e.preventDefault()
-      dragOptions.stopPropagation && e.stopPropagation()
+      dragOptions.value.preventDefault && e.preventDefault()
+      dragOptions.value.stopPropagation && e.stopPropagation()
     }
 
     // 开始拖拽
@@ -78,38 +73,40 @@ export function useDragResizeRotate (options = {}) {
         handleEvent(e)
 
         eventsFor = events[config.eventType || 'mouse']
-        Object.assign(dragOptions, config)
+        dragOptions.value = { ...dragOptions.value, ...config }
+
+        if (!config.targetDom) {
+            dragOptions.value.targetDom = readonly(e.target || e.srcElement)
+        }
 
 
-        dragOptions.targetDom = readonly(dragOptions.targetDom || e.target || e.srcElement)
-
-        const { left, top, width, height } = dragOptions.targetDom.getBoundingClientRect()
+        const { width, height } = dragOptions.value.targetDom.getBoundingClientRect()
+        const { offsetLeft, offsetTop } = dragOptions.value.targetDom
 
         Object.assign(mouseClickPosition.value, {
             mouseX: e.touches ? e.touches[0].pageX : e.pageX,
             mouseY: e.touches ? e.touches[0].pageY : e.pageY,
             width: width,
             height: height,
-            x: left,
-            y: top,
+            x: offsetLeft,
+            y: offsetTop,
             distanceX: 0,
             distanceY: 0
         })
-        console.log(left, top)
-        if (dragOptions.onStart?.(e, mouseClickPosition.value) === false) {
+        if (dragOptions.value.onStart?.(e, mouseClickPosition.value) === false) {
             return
         }
-        
 
+        
         addEvent(document.documentElement, eventsFor.move, dragMove)
-        addEvent(document.documentElement, eventsFor.end, dragEnd)
+        addEvent(document.documentElement, eventsFor.stop, dragEnd)
     }
 
     // 拖拽移动
     const dragMove = function (e) {
         handleEvent(e)
         const { mouseX, mouseY, x, y } = mouseClickPosition.value
-        const { axis } = dragOptions
+        const { axis } = dragOptions.value
 
         let distanceX = 0 // 移动距离X
         let distanceY = 0 // 移动距离Y
@@ -129,46 +126,43 @@ export function useDragResizeRotate (options = {}) {
             distanceY
         })
 
-        dragOptions.onMove?.(e, mouseClickPosition.value)
+        dragOptions.value.onMove?.(e, mouseClickPosition.value)
     }
 
     // 拖拽结束
     const dragEnd = function (e) {
         handleEvent(e)
-        dragOptions.onEnd?.(e, mouseClickPosition.value)
+        dragOptions.value.onEnd?.(e, mouseClickPosition.value)
 
         removeEvent(document.documentElement, eventsFor.move, dragMove)
-        removeEvent(document.documentElement, eventsFor.end, dragEnd)
+        removeEvent(document.documentElement, eventsFor.stop, dragEnd)
     }
 
     // 取消选择
     const deselect = (e) => {
         const target = e.target || e.srcElement;
         // const regex = new RegExp(props.className + "-([trmbl]{2})", "");
-        if (!dragOptions.targetDom?.contains(target)) {
-        //   if (props.enabled && !props.preventDeactivation) {
-        //     emit("deactivated");
-        //     emit("update:active", false);
-        //   }
-          removeEvent(document.documentElement, eventsFor.move, dragMove);
+        if (!dragOptions.value.targetDom?.contains(target)) {
+            dragOptions.value.onDeselect?.(e, mouseClickPosition.value)
+            removeEvent(document.documentElement, eventsFor.move, dragMove);
         }
       }
 
     onMounted(() => {
         // 监听取消操作
       addEvent(document.documentElement, "mousedown", deselect);
-    //   addEvent(document.documentElement, "touchend touchcancel", deselect);
+      addEvent(document.documentElement, "touchend touchcancel", deselect);
     })
 
 
     onBeforeUnmount(() => {
         // mouseClickPosition.value = null
-        // removeEvent(document.documentElement, "mousedown", deselect);
+        removeEvent(document.documentElement, "mousedown", deselect);
+        removeEvent(document.documentElement, "touchend touchcancel", deselect);
         // removeEvent(document.documentElement, "touchstart", this.handleUp);
         // removeEvent(document.documentElement, "mousemove", this.move);
         // removeEvent(document.documentElement, "touchmove", this.move);
         // removeEvent(document.documentElement, "mouseup", this.handleUp);
-        // removeEvent(document.documentElement, "touchend touchcancel", deselect);
     })
 
     return {
