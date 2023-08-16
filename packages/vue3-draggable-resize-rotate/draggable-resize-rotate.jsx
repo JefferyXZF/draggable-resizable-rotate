@@ -18,13 +18,13 @@ import {
 import {
   computeWidth,
   computeHeight,
-  restrictToBounds,
   snapToGrid,
   rotatedPoint,
   getAngle
 } from "./utils/fns"
 import {
-  useDragResizeRotate
+  useDragResizeRotate,
+  restrictToBounds,
 } from './hooks/useDragResize'
 
 import './draggable-resize-rotate.scss'
@@ -603,11 +603,10 @@ export default defineComponent({
         state.dragging = true;
       }
 
-      // 鼠标移动
+      // 鼠标操作移动
       onMouseDown(e, {
         targetDom: readonly(props.targetDom || currentDom.value),
         eventType,
-        parent: props.parent,
         // 开始拖拽
         onStart: () => {
           // 计算拖拽限制范围
@@ -618,6 +617,7 @@ export default defineComponent({
         // 拖拽中回调
         onMove: (e, position) => {
           const { left, top } = position
+
           state.left = left
           state.top = top
         },

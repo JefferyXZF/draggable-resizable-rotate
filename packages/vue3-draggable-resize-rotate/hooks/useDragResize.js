@@ -36,7 +36,6 @@ export function useDragResizeRotate (options = {}) {
     stopPropagation: true,
     scaleZoom: 1,
     axis: 'both',
-    parent: false, // 父元素限制
     onStart: () => true, // 拖拽开始
     onMove: () => true, // 拖拽中
     onEnd: () => true, // 拖拽结束
@@ -59,52 +58,10 @@ export function useDragResizeRotate (options = {}) {
         distanceY: 0
     })
 
-    // 边界状态
-    const bounds = ref({
-        minLeft: null,
-        maxLeft: null,
-        minRight: null,
-        maxRight: null,
-        minTop: null,
-        maxTop: null,
-        minBottom: null,
-        maxBottom: null,
-      })
-
     const handleEvent = (e) => {
       dragOptions.value.preventDefault && e.preventDefault()
       dragOptions.value.stopPropagation && e.stopPropagation()
     }
-
-    // 计算移动范围
-    const calcDragLimits = () => {
-        const { state, rotatable, grid: gridArr } = dragOptions.value
-        // 开启旋转时，不在进行边界限制
-        if (rotatable) {
-          return {
-            minLeft: -state.width / 2,
-            maxLeft: state.parentWidth - state.width / 2,
-            minRight: state.width / 2,
-            maxRight: state.parentWidth + state.width / 2,
-            minTop: -state.height / 2,
-            maxTop: state.parentHeight - state.height / 2,
-            minBottom: state.height / 2,
-            maxBottom: state.parentHeight + state.height / 2,
-          };
-        } else {
-          return {
-            minLeft: state.left % gridArr[0],
-            maxLeft: Math.floor((state.parentWidth - state.width - state.left) / gridArr[0]) * gridArr[0] + state.left,
-            minRight: state.right % gridArr[0],
-            maxRight: Math.floor((state.parentWidth - state.width - state.right) / gridArr[0]) * gridArr[0] + state.right,
-            minTop: state.top % gridArr[1],
-            maxTop: Math.floor((state.parentHeight - state.height - state.top) / gridArr[1]) * gridArr[1] + state.top,
-            minBottom: state.bottom % gridArr[1],
-            maxBottom:
-              Math.floor((state.parentHeight - state.height - state.bottom) / gridArr[1]) * gridArr[1] + state.bottom,
-          };
-        }
-      }
 
     // 开始拖拽
     const onMouseDown = function (e, config = {}) {
@@ -139,6 +96,7 @@ export function useDragResizeRotate (options = {}) {
         if (dragOptions.value.onStart?.(e, mouseClickPosition.value) === false) {
             return
         }
+
         
         addEvent(document.documentElement, eventsFor.move, dragMove)
         addEvent(document.documentElement, eventsFor.stop, dragEnd)
